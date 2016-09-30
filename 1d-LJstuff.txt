@@ -1,0 +1,22 @@
+1-d LJ-potential
+
+double LJpot(double x1, double x2)
+{
+    double r = fabs(x1-x2);
+    double V = 4*epsilon*(pow(sigma/r,12)-pow(sigma/r,6));
+ 
+	return V;
+}
+
+1-d LJ-force
+
+double LJforce(double x1, double x2)
+{
+	double r = fabs(x1-x2);
+    double F = 24*epsilon*pow(sigma,6)*(pow(r,6)-2*pow(sigma,6))/pow(r,13);
+ 
+    return F;
+}
+
+
+
