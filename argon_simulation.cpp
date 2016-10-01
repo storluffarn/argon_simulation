@@ -30,7 +30,6 @@ const double sigma = 3.4e-10;						// interaction term
 const double epsilon = 120*kB;						// energy term
 const double dcutoff = pow(2,1/6)*sigma;			// interaction cutoff 
 const double dcutoffsquare = pow(dcutoff,2);		// interaction cutoff 
-const int ugly = 4*6*6*6;							// ugly code, this is natoms
 
 // classes
 
@@ -71,34 +70,45 @@ class particle //class to hold particle data and functions
 	vector<double> getvel();	
 };
 
-class cloud	// class for the set of all particles and functions on these
+class cloud // class for the set of all particles and functions on these
 {
+	int natomsside;
+	int natoms;
+	double boxlength;			// from paper
+	double gridsize;	// initial separation
+
+	unsigned int ugly = natoms;		// why does it need to be unsigned?
+	
 	// object member
 	vector<particle> particleArray{ugly};						// vector of all particles
 	
 	public:
+	cloud(int a, unsigned int b, double c, double d)
+		: natomsside(a), natoms(b), boxlength(c), gridsize(d)
+	{}
 	
-	double distance(double,particle*,particle*);				// distance between particles
-	double distancesquare(double,particle*,particle*);			// distance between particles
-	void force(double,particle*,particle*);						// force between particles
-	void potential(double,particle*,particle*);					// calculating potential energy
+	double distance(particle*,particle*);				// distance between particles
+	double distancesquare(particle*,particle*);			// distance between particles
+	vector<double> direction(particle*,particle*);
+	void force(particle*,particle*);						// force between particles
+	void potential(particle*,particle*);					// calculating potential energy
 
 	// function on object
-	void forcecloud(double,int,cloud*);							// total force on all particls
-	void velverletcloud(double,int,cloud*);						// verlet velocity step
-	void posverletcloud(double,int,cloud*);						// verlet position step
-	void speedcloud(int,cloud*);
-	void speedsquarecloud(int,cloud*);
-	void potcloud(double,int,cloud*);							// potential energy
-	void kincloud(int,cloud*);									// kinetic energy
-	void radialdistfunc(double,int,int,vector<double>*,cloud*);	// print density over distanc
-	void veldist(double,int,int,vector<double>*,cloud*);		// print velocity distribution
+	void forcecloud(cloud*);							// total force on all particls
+	void velverletcloud(double,cloud*);						// verlet velocity step
+	void posverletcloud(double,cloud*);						// verlet position step
+	void speedcloud(cloud*);
+	void speedsquarecloud(cloud*);
+	void potcloud(cloud*);							// potential energy
+	void kincloud(cloud*);									// kinetic energy
+	void radialdistfunc(int,vector<double>*,cloud*);	// print density over distanc
+	void veldist(double,int,vector<double>*,cloud*);		// print velocity distribution
 
 	// data collection
-	void initPositions(int,double,cloud*);						// initial positions
-	void initVelocities(int,cloud*);							// initial velocities
-	void printPositions(int,cloud*);							// print positions
-	void printSpeeds(int,cloud*);								// print speeds
+	void initPositions(cloud*);						// initial positions
+	void initVelocities(cloud*);							// initial velocities
+	void printPositions(cloud*);							// print positions
+	void printSpeeds(cloud*);								// print speeds
 	void printDensArr(int,vector<double>*);
 	void printSpeedDist(int,vector<double>*);
 	void display(int,cloud*);									// print stuff to terminal
@@ -149,7 +159,8 @@ vector<double> particle::getvel()		// for getting velocities
 //
 //Initializing
 
-void cloud::initPositions(int natomsside, double gridsize, cloud*) // setting initial positions with face centered packing
+
+void cloud::initPositions(cloud*) // setting initial positions with face centered packing
 {		
 	int k = 0;
 	for (int kz = 0; kz < natomsside; kz++)
@@ -166,7 +177,7 @@ void cloud::initPositions(int natomsside, double gridsize, cloud*) // setting in
 			}   
 }
 
-void cloud::initVelocities(int natoms, cloud*) // setting initial velocities, assuming approx gaussian
+void cloud::initVelocities(cloud*) // setting initial velocities, assuming approx gaussian
 {
 	double mean = 0; // centre of 1d velocities
 	double std = sqrt(kB*T/argonmass); // standard deviation
@@ -185,36 +196,53 @@ void cloud::initVelocities(int natoms, cloud*) // setting initial velocities, as
 //
 // Functions on the particles
 
-double cloud::distance (double boxlength, particle* p1, particle* p2) // distance between particles with periodic boundaries
+vector<double> cloud::direction (particle* p1, particle* p2)
 {
-	double r, x, y, z;
+	vector<double> direction;
+	
+	double dx,dy,dz;
+		
+	dx = fabs(p1->pox - p2->pox); // 1d distances
+	dy = fabs(p1->poy - p2->poy);
+	dz = fabs(p1->poz - p2->poz);
 
-	x = fabs(p1->pox - p2->pox); // 1d distances
-	y = fabs(p1->poy - p2->poy);
-	z = fabs(p1->poz - p2->poz);
+	dx -= static_cast<int> (dx/boxlength + 0.5) * boxlength; //periodic boundary
+	dy -= static_cast<int> (dy/boxlength + 0.5) * boxlength;
+	dz -= static_cast<int> (dz/boxlength + 0.5) * boxlength;
 
-	x -= static_cast<int> (x/boxlength + 0.5) * boxlength; //periodic boundary
-	y -= static_cast<int> (y/boxlength + 0.5) * boxlength;
-	z -= static_cast<int> (z/boxlength + 0.5) * boxlength;
+	direction.push_back(dx);
+	direction.push_back(dy);
+	direction.push_back(dz);
 
-	r = sqrt(x*x + y*y + z*z); // euklidian distance
+	return direction;
+}	
+
+double cloud::distance (particle* p1, particle* p2) // distance between particles with periodic boundaries
+{
+	double r, dx, dy, dz;
+	
+	vector<double> dir = direction(p1,p2);
+
+	dx = dir[0];
+	dy = dir[1];
+	dz = dir[2];
+	
+	r = sqrt(dx*dx + dy*dy + dz*dz); // euklidian distance
 
 	return r;
 }
 
-double cloud::distancesquare (double boxlength, particle* p1, particle* p2) // calculating square of distance to save computer time
+double cloud::distancesquare (particle* p1, particle* p2) // calculating square of distance to save computer time
 {
-	double r, x, y, z;
+	double r, dx, dy, dz;
+	
+	vector<double> dir = direction(p1,p2);
 
-	x = fabs(p1->pox - p2->pox); // 1d distances
-	y = fabs(p1->poy - p2->poy);
-	z = fabs(p1->poz - p2->poz);
-
-	x -= static_cast<int> (x/boxlength + 0.5) * boxlength; //periodic boundary
-	y -= static_cast<int> (y/boxlength + 0.5) * boxlength;
-	z -= static_cast<int> (z/boxlength + 0.5) * boxlength;
-
-	r = x*x + y*y + z*z; // euklidian distance squared
+	dx = dir[0];
+	dy = dir[1];
+	dz = dir[2];
+	
+	r = dx*dx + dy*dy + dz*dz; // euklidian distance squared
 
 	return r;
 }
@@ -233,16 +261,20 @@ void particle::speedsquare (particle* p1) // caclulating square of speed without
 	p1->spdsqr = s;
 }
 
-void cloud::force (double boxlength, particle* p1, particle* p2) // force between two particles
+void cloud::force (particle* p1, particle* p2) // force between two particles
 {
-	double r = distancesquare(boxlength, p1, p2); // see distance function
-	double F = 4*epsilon*(12*pow(sigma,12)/pow(r,7)-6*pow(sigma,6)/pow(r,4)); // LJ-force with halved exponents to save computer time
+	vector<double> dir = direction(p1,p2);
+
+	double r = distancesquare(p1, p2); // see distance function
+	double F = 24*epsilon*(2*pow(sigma,12)/pow(r,7)-pow(sigma,6)/pow(r,4)); // LJ-force with halved exponents to save computer time
+	//double r = distance(boxlength, p1, p2); // see distance function
+	//double F = 24*epsilon*(pow(sigma,6)*pow(r,8) - 2*pow(sigma,12)/pow(r,14) );
 
 	double dx,dy,dz;
 	
-	dx = (p1->pox - p2->pox); // calculating distance vector
-	dy = (p1->poy - p2->poy);
-	dz = (p1->poz - p2->poz);
+	dx = dir[0];
+	dy = dir[1];
+	dz = dir[2];
 	
 	p1->fox += dx*F;	
 	p1->foy += dy*F;	
@@ -263,7 +295,7 @@ void particle::posverlet(double timestep,particle* p1) // taking a verlet positi
 
 void particle::velverlet(double timestep, particle* p1) // taking a verlet velocity step, also calculating accelerations
 {	
-	double argonmas = argonmass;
+	double argonmas = 1;
 
 	p1->vex += timestep*p1->fox/argonmas*0.5;
 	p1->vey += timestep*p1->foy/argonmas*0.5;
@@ -275,10 +307,10 @@ void particle::kinetic(particle* p1) // calculates the kinetic energy of a parti
 	p1->kin = 0.5*argonmass*p1->spdsqr;
 }
 
-void cloud::potential(double boxlength, particle* p1, particle* p2)
+void cloud::potential(particle* p1, particle* p2)
 {
-	double r = distance(boxlength, p1, p2);
-	double pot = 4*epsilon*(pow(sigma/r,12)-pow(sigma/r,6)); // LJ-potential
+	double r = distancesquare(p1, p2);
+	double pot = 4*epsilon*(pow(sigma/r,6)-pow(sigma/r,3)); // LJ-potential with squared ristance
 
 	p1->pot += pot;
 	p2->pot += pot;
@@ -289,19 +321,19 @@ void cloud::potential(double boxlength, particle* p1, particle* p2)
 //
 // Functions on the cloud
 
-void cloud::speedcloud(int natoms, cloud*)
+void cloud::speedcloud(cloud*)
 {
 	for(int k = 0; k < natoms; k++)
 		particleArray[k].speed(&particleArray[k]);
 }
 
-void cloud::speedsquarecloud(int natoms, cloud*)
+void cloud::speedsquarecloud(cloud*)
 {
 	for(int k = 0; k < natoms; k++)
 		particleArray[k].speedsquare(&particleArray[k]);
 }
 
-void cloud::forcecloud(double boxlength, int natoms, cloud*)
+void cloud::forcecloud(cloud*)
 {
 	for(int k = 0; k < natoms; k++)
 	{
@@ -314,21 +346,21 @@ void cloud::forcecloud(double boxlength, int natoms, cloud*)
 	{
 		for(int p2 = p1 + 1; p2 < natoms - 1; p2++)
 		{
-			if (p1 != p2 && distancesquare(boxlength,&particleArray[p1],&particleArray[p2]) <= dcutoffsquare)
+			if (p1 != p2 && distancesquare(&particleArray[p1],&particleArray[p2]) <= dcutoffsquare)
 			{
-				force(boxlength,&particleArray[p1],&particleArray[p2]);
+				force(&particleArray[p1],&particleArray[p2]);
 			}
 		}	
 	}
 }
 
-void cloud::kincloud(int natoms, cloud*) // calculating kinetic energies
+void cloud::kincloud(cloud*) // calculating kinetic energies
 {
 	for(int k = 0; k < natoms; k++)
 		particleArray[k].kinetic(&particleArray[k]);
 }
 
-void cloud::potcloud(double boxlength, int natoms, cloud*) // calculating potenital energies
+void cloud::potcloud(cloud*) // calculating potenital energies
 {
 	for(int k = 0; k < natoms; k++)
 	{
@@ -339,27 +371,27 @@ void cloud::potcloud(double boxlength, int natoms, cloud*) // calculating poteni
 	{
 		for (int p2 = p1 + 1; p2 < natoms; p2++)
 		{   
-			if (p1 != p2 && distancesquare(boxlength,&particleArray[p1],&particleArray[p2]) <= dcutoffsquare)
+			if (p1 != p2 && distancesquare(&particleArray[p1],&particleArray[p2]) <= dcutoffsquare)
 			{
-				potential(boxlength,&particleArray[p1],&particleArray[p2]);
+				potential(&particleArray[p1],&particleArray[p2]);
 			}
 		} 
 	}
 }
 
-void cloud::posverletcloud(double timestep, int natoms, cloud*) // new positions using verlet
+void cloud::posverletcloud(double timestep, cloud*) // new positions using verlet
 {
 	for(int k = 0; k < natoms; k++)
 		particleArray[k].posverlet(timestep, &particleArray[k]);
 }
 
-void cloud::velverletcloud(double timestep, int natoms, cloud*) // new velocities using verlet
+void cloud::velverletcloud(double timestep, cloud*) // new velocities using verlet
 {
 	for(int k = 0; k < natoms; k++)
 		particleArray[k].velverlet(timestep, &particleArray[k]);
 }
 
-void cloud::radialdistfunc(double boxlength, int densbins, int natoms, vector<double> *densArr, cloud*) // finds the density over distance
+void cloud::radialdistfunc(int densbins, vector<double> *densArr, cloud*) // finds the density over distance
 {
 	vector<double> distances;
 
@@ -367,7 +399,7 @@ void cloud::radialdistfunc(double boxlength, int densbins, int natoms, vector<do
 	{   
 		for(int l = 0; l < natoms; l++)
 		{   
-			if(l !=  k){distances.push_back(distance(boxlength,&particleArray[k],&particleArray[l]));} // build a vector of all distances
+			if(l !=  k){distances.push_back(distance(&particleArray[k],&particleArray[l]));} // build a vector of all distances
 		}
 	}
 
@@ -391,7 +423,7 @@ void cloud::radialdistfunc(double boxlength, int densbins, int natoms, vector<do
 	}
 }
 
-void cloud::veldist(double maxspeed, int velbins, int natoms, vector<double> *velArr, cloud*) // finds the velocity distrobution
+void cloud::veldist(double maxspeed, int velbins, vector<double> *velArr, cloud*) // finds the velocity distrobution
 {
 	vector<double> velocities(natoms);
 
@@ -414,7 +446,7 @@ void cloud::veldist(double maxspeed, int velbins, int natoms, vector<double> *ve
 //
 // Printing functions
 
-void cloud::printPositions(int natoms, cloud*) // printing positions
+void cloud::printPositions(cloud*) // printing positions
 {
 	ofstream filestream;
 	filestream.open("positions.txt");
@@ -423,7 +455,7 @@ void cloud::printPositions(int natoms, cloud*) // printing positions
 	filestream.close();
 }
 
-void cloud::printSpeeds(int natoms, cloud*) // printing speeds
+void cloud::printSpeeds(cloud*) // printing speeds
 {
 	ofstream filestream;
 	filestream.open("velocities.txt");
@@ -471,54 +503,55 @@ void cloud::display(int k, cloud*)
 
 int main()
 {
-	const int natomsside = 6;
-	const int natoms = 4*pow(natomsside,3);
-	const double boxlength = 10.229*sigma;			// from paper
-	const double gridsize = boxlength/natomsside;	// initial separation
 
 	// simulation specifics
 	const double timestep = 1e-14;
-	const int duration = 100;
+	const int duration = 1000;
 
 	chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
+	int side = 6;
+	int atoms = 4*pow(side,3);
+	double length = 10.229*sigma;			// from paper
+	double grid = length/side;				// initial separation
+	
 	// creating particle cloud
-	cloud particleCloud;
-
+	cloud particleCloud(side, atoms, length, grid);
+	
 	// set initial conditions
 
 	srand(time(NULL));	// setting random seed
-	particleCloud.initPositions(natomsside, gridsize, &particleCloud);	// initializing positions
-	particleCloud.initVelocities(natoms, &particleCloud);				// initializing velocities
+	particleCloud.initPositions(&particleCloud);	// initializing positions
+	particleCloud.initVelocities(&particleCloud);				// initializing velocities
 
 	for(int k = 0; k< duration; k++)	// main simulation loop
 	{
-		particleCloud.forcecloud(boxlength, natoms, &particleCloud);	// calculating force
-		particleCloud.velverletcloud(timestep, natoms, &particleCloud);	// calculating new velocities
-		particleCloud.posverletcloud(timestep, natoms, &particleCloud);	// caluclating new positions
-		particleCloud.display(275,&particleCloud); 
-		particleCloud.forcecloud(boxlength, natoms, &particleCloud);	// calculating forces
-		particleCloud.velverletcloud(timestep, natoms, &particleCloud);	// calculating new velocities
+		particleCloud.forcecloud(&particleCloud);	// calculating force
+		particleCloud.velverletcloud(timestep, &particleCloud);	// calculating new velocities
+		particleCloud.posverletcloud(timestep, &particleCloud);	// caluclating new positions
+		//particleCloud.display(275,&particleCloud); 
+		particleCloud.forcecloud(&particleCloud);	// calculating forces
+		particleCloud.velverletcloud(timestep, &particleCloud);	// calculating new velocities
 	}
 
-	particleCloud.speedcloud(natoms, &particleCloud);
-	particleCloud.speedsquarecloud(natoms, &particleCloud);
-	particleCloud.potcloud(boxlength,natoms,&particleCloud);	// calculating potential energies
-	particleCloud.kincloud(natoms,&particleCloud);				// calculating kinetic energies
+	particleCloud.speedcloud(&particleCloud);
+	particleCloud.speedsquarecloud(&particleCloud);
+	particleCloud.potcloud(&particleCloud);	// calculating potential energies
+	particleCloud.kincloud(&particleCloud);				// calculating kinetic energies
 
 	//	particleCloud.display(1,&particleCloud);	
 
 	int velbins = 100;					// number of bins in speed distribution
 	double maxspeed = 800.0;			// maximum speed
 	vector<double> velArr (velbins);	// vector of all speeds
-	particleCloud.veldist(maxspeed, velbins, natoms, &velArr, &particleCloud); // calculating speed distribution
+	particleCloud.veldist(maxspeed, velbins, &velArr, &particleCloud); // calculating speed distribution
 	
 	int densbins = 500;					// number of bins in density distribution
 	vector<double> densArr (densbins);	// vector of density over distance
-	particleCloud.radialdistfunc(boxlength, densbins, natoms, &densArr, &particleCloud); // calculating radial distribution func
+	particleCloud.radialdistfunc(densbins, &densArr, &particleCloud); // calculating radial distribution func
 	
-	particleCloud.printPositions(natoms, &particleCloud);	// print positions
-	particleCloud.printSpeeds(natoms, &particleCloud);		// print raw speeds
+	particleCloud.printPositions(&particleCloud);	// print positions
+	particleCloud.printSpeeds(&particleCloud);		// print raw speeds
 	particleCloud.printSpeedDist(velbins, &velArr);			// print speed distribution
 	particleCloud.printDensArr(densbins, &densArr);			// print density distribution
 
@@ -527,6 +560,38 @@ int main()
 	double benchtime = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
 	
 	cout << benchtime << "\n" ;
+
+	// -----------------------------------------------------------------------
+	// testing stuff
+	
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 	while(true) // interface for simple debugging
 	{

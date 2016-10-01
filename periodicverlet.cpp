@@ -45,7 +45,10 @@ double LJforce()
 {
 	double r = fabs(p2.posx - p1.posx);
 	r -= static_cast<int> (r/boxside2 + 0.5) * boxside2; // +0.5 for cast to work // static_cast<int>(n >= 0 ? n + 0.5 : n - 0.5) for nearest int
-	double F = 24*epsilon*pow(sigma,6)*(pow(r,6)-2*pow(sigma,6))/pow(r,13);
+	
+	//double F = 24*epsilon*pow(sigma,6)*(pow(r,6) - 2*pow(sigma,6))/pow(r,13); //works but shouldn't
+	double F = 24*epsilon*(pow(sigma,6)*pow(r,7) - 2*pow(sigma,12)/pow(r,13) ); // works and correct
+	//double F = 24*epsilon*(-pow(sigma,6)/(pow(r,7)+2*pow(sigma,12))/pow(r,13));
 
 	return F;
 }
@@ -54,7 +57,9 @@ double LJpot()
 {
 	double r = fabs(p2.posx - p1.posx);
 	r -= static_cast<int> (r/boxside2 + 0.5) * boxside2; 
-	double V = 4*epsilon*(pow(sigma/r,13)-pow(sigma/r,6));
+
+	double V = 4*epsilon*(pow(sigma/r,12)-pow(sigma/r,6));
+	//double V = 4*epsilon*(pow(sigma/r,13)-pow(sigma/r,6));
 
 	return V;
 }
