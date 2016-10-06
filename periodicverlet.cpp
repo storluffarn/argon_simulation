@@ -29,10 +29,8 @@ struct particle // all relevant particle properties goes here
 
 //initial conditions
 
-//double x1 = boxside2-1.25e-11;
 double x1 = boxside2-10.0e-10;
 double x2 = boxside2-0e-14;
-//double x2 = boxside2-1e-14;
 double v1 = 100;
 double v2 = -100;
 
@@ -46,9 +44,7 @@ double LJforce()
 	double r = fabs(p2.posx - p1.posx);
 	r -= static_cast<int> (r/boxside2 + 0.5) * boxside2; // +0.5 for cast to work // static_cast<int>(n >= 0 ? n + 0.5 : n - 0.5) for nearest int
 	
-	//double F = 24*epsilon*pow(sigma,6)*(pow(r,6) - 2*pow(sigma,6))/pow(r,13); //works but shouldn't
-	double F = 24*epsilon*(pow(sigma,6)*pow(r,7) - 2*pow(sigma,12)/pow(r,13) ); // works and correct
-	//double F = 24*epsilon*(-pow(sigma,6)/(pow(r,7)+2*pow(sigma,12))/pow(r,13));
+	double F = - 24*epsilon*(-pow(sigma,6)*pow(r,7) + 2*pow(sigma,12)/pow(r,13) ); // works and correct
 
 	return F;
 }
@@ -59,7 +55,6 @@ double LJpot()
 	r -= static_cast<int> (r/boxside2 + 0.5) * boxside2; 
 
 	double V = 4*epsilon*(pow(sigma/r,12)-pow(sigma/r,6));
-	//double V = 4*epsilon*(pow(sigma/r,13)-pow(sigma/r,6));
 
 	return V;
 }
@@ -81,13 +76,7 @@ void verlet ()
 
 	for(int k = 0; k < duration; k++)
 	{
-		force= LJforce();
-
-		//p1.vx += timestep*force/2;
-		//p2.vx += timestep*(-force)/2; // - because no vector formulation
-		
-		//p1.posx += timestep*p1.vx;
-		//p2.posx += timestep*p2.vx;
+		force= LJforce(); // values 1e-19 - 1e-11
 		
 		p1.vx += timestep*force/argonmass*0.5;
 		p2.vx += -timestep*force/argonmass*0.5;
@@ -96,9 +85,6 @@ void verlet ()
 		p2.posx += timestep*p2.vx;
 
 		force = LJforce();
-
-		//p1.vx += timestep*force/2;
-		//p2.vx += timestep*(-force)/2;
 		
 		p1.vx += timestep*force/argonmass*0.5;
 		p2.vx += -timestep*force/argonmass*0.5;
@@ -116,6 +102,7 @@ void verlet ()
 		verlet1dfile << p1.posx << " " << p1.vx << " " << p1.kinE << " " << p1.potE << "\n";
 		verlet1dfile << p2.posx << " " << p2.vx << " " << p2.kinE << " " << p2.potE << "\n";
 		verlet1dfile << Etot1 << " " << Etot2 << " " << Etot << "\n";
+		verlet1dfile << force << "\n";
 	}
 verlet1dfile.close();
 }
