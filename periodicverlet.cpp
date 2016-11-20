@@ -4,6 +4,8 @@
 #include <cmath>
 #include <chrono>
 
+using namespace std;
+
 //definitions
 
 const double timestep = 5e-14;
@@ -44,7 +46,7 @@ double LJforce()
 	double r = fabs(p2.posx - p1.posx);
 	r -= static_cast<int> (r/boxside2 + 0.5) * boxside2; // +0.5 for cast to work // static_cast<int>(n >= 0 ? n + 0.5 : n - 0.5) for nearest int
 	
-	double F = - 24*epsilon*(-pow(sigma,6)*pow(r,7) + 2*pow(sigma,12)/pow(r,13) ); // works and correct
+	double F = - 24*epsilon*(-pow(sigma,6)/pow(r,7) + 2*pow(sigma,12)/pow(r,13) ); // works and correct
 
 	return F;
 }
@@ -59,6 +61,49 @@ double LJpot()
 	return V;
 }
 
+double qstep(double q, double qdot, double time)
+{
+	return q + qdot * time;
+}
+
+double rk4(double q, double qdot, double timestep, double time)
+{
+	//double k1 = q + qdot * time;
+	//double q1 = q + k1 * 0.5*timestep;
+	//double k2 = q1 + qdot * time;
+	//double q2 = q + k2 * 0.5*timestep;
+	//double k3 = q2 + qdot * time;
+	//double q3 = q + k3*timestep;
+	//double k4 = q3 + qdot * time;
+	
+	//double k1 = q + qdot*timestep;
+	//double k2 = q + 0.5*timestep*k1 + qdot*(0.5*timestep+timestep);
+	//double k3 = q + 0.5*timestep*k2 + qdot*(0.5*timestep+timestep);
+	//double k4 = q + timestep*k3 + qdot*(timestep+timestep);
+
+	//double k1 = q + qdot*time;
+	//double k2 = q + 0.5*timestep*k1 + qdot*(0.5*timestep+time);
+	//double k3 = q + 0.5*timestep*k2 + qdot*(0.5*timestep+time);
+	//double k4 = q + timestep*k3 + qdot*(timestep+time);
+	
+	double k1 = qstep(q, qdot, time);
+	double k2 = qstep(q + 0.5*k1, qdot, time + 0.5*timestep + time);
+	double k3 = qstep(q + 0.5*k2, qdot, time + 0.5*timestep + time);
+	double k4 = qstep(q + k3, qdot, time + timestep);
+
+
+	double returnq = q + timestep/6.0 * (k1+k2+k3+k4);
+	
+	cout << returnq  - q << endl;
+
+	return returnq; 
+}
+
+double calcacc()
+{
+	return LJforce()/argonmass;
+}
+
 // make sub rutines for printing, and energy calculations
 //
 //
@@ -66,6 +111,8 @@ double LJpot()
 void verlet ()
 {
 	double force;
+	double acc;
+	double time;
 
 	double Etot1;
 	double Etot2;
@@ -76,18 +123,28 @@ void verlet ()
 
 	for(int k = 0; k < duration; k++)
 	{
-		force= LJforce(); // values 1e-19 - 1e-11
-		
-		p1.vx += timestep*force/argonmass*0.5;
-		p2.vx += -timestep*force/argonmass*0.5;
+		time = timestep*k;
 
-		p1.posx += timestep*p1.vx;
-		p2.posx += timestep*p2.vx;
-
-		force = LJforce();
+		acc = calcacc();
 		
-		p1.vx += timestep*force/argonmass*0.5;
-		p2.vx += -timestep*force/argonmass*0.5;
+		//p1.vx = rk4(p1.vx, acc, timestep, time);
+		//p2.vx = rk4(p2.vx, -acc, timestep, time);
+
+		p1.posx = rk4(p1.posx,p1.vx,timestep, timestep);
+		//p2.posx = rk4(p2.posx,p2.vx,timestep, time);
+		
+		//force = LJforce(); // values 1e-19 - 1e-11
+		
+		//p1.vx += timestep*force/argonmass*0.5;
+		//p2.vx += -timestep*force/argonmass*0.5;
+
+		//p1.posx += timestep*p1.vx;
+		//p2.posx += timestep*p2.vx;
+
+		//force = LJforce();
+		
+		//p1.vx += timestep*force/argonmass*0.5;
+		//p2.vx += -timestep*force/argonmass*0.5;
 		
 		p1.kinE = argonmass*p1.vx*p1.vx/2;
 		p1.potE = LJpot();
