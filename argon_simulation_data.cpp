@@ -50,6 +50,9 @@ class dataclass													// data to be analysed
 	string filename;											// name of file to read
 	vector <double> data;										// data read
 	int size;													// numbers written/read
+	double average;
+	double variance;
+	double stdev;
 
 	// function members
 	
@@ -57,6 +60,9 @@ class dataclass													// data to be analysed
 	void writedata(vector<double>*,string);						// function for writing data
 	
 	// public section
+	
+	friend void radialdistfunc(double,int,int,dataclass*);										// radial distribution function	
+	friend void heatcapacity(dataclass*,dataclass*,dataclass*);
 	
 	public:
 	
@@ -71,17 +77,29 @@ class dataclass													// data to be analysed
 	//function members
 	
 	// inline functions
-	double calcmean()											// calculates mean of data
+	void calcavg()											// calculates mean of data
 	{
-		return accumulate(data.begin(),data.end(),0.0)/data.size();	
+		average = accumulate(data.begin(),data.end(),0.0)/data.size();	
+	}
+	
+	void calcvar()
+	{
+		vector <double> shifted = data;
+
+		for (auto& el: shifted)
+		{
+			el = pow(shifted[el] - average,2);
+		}
+
+		variance = accumulate(shifted.begin(),shifted.end(),0.0)/shifted.size();
+		stdev = sqrt(variance);
 	}
 	
 	// out of line functions	
 	void acorrelation();										// auto correlation function
 	void speeddist(double,int);									// speed distribution
-	void radialdistfunc(double,int,int);						// radial distribution function
-	
 };
+
 
 // ----------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------
@@ -120,6 +138,8 @@ void dataclass::writedata(vector <double>* writedata, string filename)	// wrotes
 //
 // Statstics
 
+// Out of line functions
+
 void dataclass::speeddist(double maxspeed, int bins)			// calculates the velocity distrobution
 {
 	vector <double> speeddist(bins);
@@ -136,43 +156,12 @@ void dataclass::speeddist(double maxspeed, int bins)			// calculates the velocit
 	writedata(&speeddist,"speeddist.txt");
 }
 
-void dataclass::radialdistfunc(double boxlength, int natoms, int bins)       // calculates the radial distribution
-{
-	vector <double> rdf (bins);
-	double resbins = 1/(static_cast<double> (bins));			// reciprocal densbins
-	double halfbox = 0.5*boxlength;								// half box length
-
-	vector<int>hist(bins);
-	double shell1 = 0, shell2 = 0;
-
-	for(double k = 0; k < bins; k++)							// bin distances up to half box length
-	{ 
-		shell2 = (k + 1)*resbins*halfbox;
-		hist[k] = count_if(data.begin(), data.end(), [&shell1, &shell2](double i){return shell1 < i && i < shell2;}); 
-		shell1 = shell2;
-	}
-
-	double dens, norm;											
-	double natomssqr = pow(natoms,2);							// number of atoms squared
-	double resvol = pow(boxlength,-3);							// resiprocal volume
-
-	for (double k = 0; k < bins; k++)							// calculates radial distribution function
-	{
-		dens = natomssqr*resvol;
-		norm = 4*pi*pow((k+1)*resbins*halfbox,2)*dens*(halfbox*resbins);
-		rdf[k] = hist[k]/norm;
-	}	
-
-	writedata(&rdf,"radialdistfunc.txt");
-}
-
 void dataclass::acorrelation()
 {
 	unsigned int tau = data.size();
 	vector <double> corrlist(tau);
 
 	double norm, corr;
-	double mean = calcmean();									// mean of data
 	
 	for (unsigned int k = 0; k < tau; k++)						// calculate all autocorrelations
 	{
@@ -181,11 +170,11 @@ void dataclass::acorrelation()
 		corr = 0;
 				
 		for (unsigned int l = 0; l < data.size(); l++)
-			norm += pow(data[l]-mean,2);
+			norm += pow(data[l]-average,2);
 			
 		for ( unsigned int l = 0; l < data.size() - k; l++)
 		{
-			corr += (data[l] - mean)*(data[l+k] - mean);
+			corr += (data[l] - average)*(data[l+k] - average);
 		}
 		
 		corrlist[k] = corr/norm;
@@ -193,6 +182,57 @@ void dataclass::acorrelation()
 	}
 
 	writedata(&corrlist, "correlation.txt");
+}
+
+// Non class member functions
+
+void heatcapacity(dataclass* energies, dataclass* energiessq, dataclass* temp)
+{
+	vector <double> heat (energies->data.size());
+
+	energies->calcavg();
+	energiessq->calcavg();
+	double ressize = energiessq->data.size();
+
+	for (auto& el : heat)
+	{
+		auto k = &el - &heat[0];
+
+		double sqavge = energies->data[k]*ressize;
+		double avgesq = energiessq->data[k]*ressize;
+	
+		el = (avgesq - sqavge) / (kB*pow(temp->data[k],2));
+	}
+}
+
+void radialdistfunc(double boxlength, int natoms, int bins, dataclass* datac)       // calculates the radial distribution
+{
+	vector <double> rdf (bins);
+	double resbins = 1/(static_cast<double> (bins));			// reciprocal densbins
+	double halfbox = 0.5*boxlength;								// half box lengt
+	
+	vector<int>hist(bins);
+	double shell1 = 0, shell2 = 0;
+
+	for(double k = 0; k < bins; k++)							// bin distances up to half box length
+	{ 
+		shell2 = (k + 1)*resbins*halfbox;
+		hist[k] = count_if(datac->data.begin(), datac->data.end(), [&shell1, &shell2](double i){return shell1 < i && i < shell2;}); 
+		shell1 = shell2;
+	}
+
+	double dens, norm;											
+	double natomssq = pow(natoms,2)*0.5;							// number of atoms squared
+	double resvol = pow(boxlength,-3);							// resiprocal volume
+
+	for (double k = 0; k < bins; k++)							// calculates radial distribution function
+	{
+		dens = natomssq*resvol;
+		norm = 4*pi*pow((k+1)*resbins*halfbox,2)*dens*(halfbox*resbins);
+		rdf[k] = hist[k]/norm;
+	}	
+
+	datac->writedata(&rdf,"radialdistfunc.txt");
 }
 
 // main
@@ -209,7 +249,7 @@ int main()
 	dataclass speeds("speeds.txt");
 	
 	int bins = 100;
-	double maxspeed = 800;
+	double maxspeed = 500;
 	speeds.speeddist(maxspeed, bins);
 
 	// radial distribution function
@@ -218,7 +258,7 @@ int main()
 	bins = 500;
 	double boxlength = 10.229*(3.4e-10);
 	int npart = 864;
-	rdf.radialdistfunc(boxlength, npart, bins);
+	radialdistfunc(boxlength, npart, bins, &rdf);
 
 }
 
