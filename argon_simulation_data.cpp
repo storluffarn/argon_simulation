@@ -51,8 +51,6 @@ class dataclass													// data to be analysed
 	vector <double> data;										// data read
 	int size;													// numbers written/read
 	double average;
-	double variance;
-	double stdev;
 
 	// function members
 	
@@ -63,7 +61,9 @@ class dataclass													// data to be analysed
 	
 	friend void radialdistfunc(double,int,int,dataclass*);										// radial distribution function	
 	friend void heatcapacity(dataclass*,dataclass*,dataclass*);
-	
+	friend void speeddist(double,int,dataclass*);
+	friend void blockaverage(double, dataclass*);
+
 	public:
 	
 	// constructor
@@ -77,27 +77,19 @@ class dataclass													// data to be analysed
 	//function members
 	
 	// inline functions
+
 	void calcavg()											// calculates mean of data
 	{
 		average = accumulate(data.begin(),data.end(),0.0)/data.size();	
 	}
-	
-	void calcvar()
+
+	vector <double> getdata()
 	{
-		vector <double> shifted = data;
-
-		for (auto& el: shifted)
-		{
-			el = pow(shifted[el] - average,2);
-		}
-
-		variance = accumulate(shifted.begin(),shifted.end(),0.0)/shifted.size();
-		stdev = sqrt(variance);
-	}
+		return data;
+	}	
 	
 	// out of line functions	
 	void acorrelation();										// auto correlation function
-	void speeddist(double,int);									// speed distribution
 };
 
 
@@ -140,22 +132,6 @@ void dataclass::writedata(vector <double>* writedata, string filename)	// wrotes
 
 // Out of line functions
 
-void dataclass::speeddist(double maxspeed, int bins)			// calculates the velocity distrobution
-{
-	vector <double> speeddist(bins);
-	double resbins = 1/(static_cast<double> (bins));			// reciprocal velbins
-
-	double shell1 = 0, shell2 = 0;
-	for(double k = 0; k < bins; k++)							// count speeds into bins
-	{ 
-		shell2 = (k + 1)*resbins*maxspeed;
-		speeddist[k] = count_if(data.begin(), data.end(), [&shell1, &shell2](double i){return shell1 < i && i < shell2;});
-		shell1 = shell2;
-	}
-
-	writedata(&speeddist,"speeddist.txt");
-}
-
 void dataclass::acorrelation()
 {
 	unsigned int tau = data.size();
@@ -185,39 +161,120 @@ void dataclass::acorrelation()
 }
 
 // Non class member functions
-
-void heatcapacity(dataclass* energies, dataclass* energiessq, dataclass* temp)
-{
-	vector <double> heat (energies->data.size());
-
-	energies->calcavg();
-	energiessq->calcavg();
-	double ressize = energiessq->data.size();
-
-	for (auto& el : heat)
-	{
-		auto k = &el - &heat[0];
-
-		double sqavge = energies->data[k]*ressize;
-		double avgesq = energiessq->data[k]*ressize;
 	
-		el = (avgesq - sqavge) / (kB*pow(temp->data[k],2));
+vector <double> calcerror(vector <double>* data)
+{
+	double average = accumulate(data->begin(),data->end(),0.0)/data->size();	
+	
+	vector <double> shifted (data->size());
+
+	for (auto& el: shifted)
+	{
+		auto k = &el - &shifted[0];
+
+		el = pow((*data)[k] - average,2);
 	}
+
+	double variance = accumulate(shifted.begin(),shifted.end(),0.0)/shifted.size();
+	double stdev = sqrt(variance);
+	double error = stdev/sqrt(data->size()-1);
+
+	vector <double> retvals = {average,variance,stdev,error};
+	
+	return retvals;
 }
 
-void radialdistfunc(double boxlength, int natoms, int bins, dataclass* datac)       // calculates the radial distribution
+void speeddist(double maxspeed, int bins, dataclass* speeds)			// calculates the velocity distrobution
+{
+	vector <double> speeddist(bins);
+	vector <double> speederror(bins);
+	vector <double> binerror(bins);
+	vector <double> binsizes(bins);	
+
+	int binsize = maxspeed/static_cast<double> (bins);
+
+	double resbins = 1/(static_cast<double> (bins));			// reciprocal velbins
+
+	double shell1 = 0, shell2 = 0;
+	for(double k = 0; k < bins; k++)							// count speeds into bins
+	{ 
+		shell2 = (k + 1)*resbins*maxspeed;
+		//speeddist[k] = count_if(speeds->data.begin(), speeds->data.end(), [&shell1, &shell2](double i){return shell1 < i && i < shell2;});
+
+		int count = 0;
+		vector <double> speedbin = {};
+
+		for (auto& el : speeds->data)
+		{
+			if (shell1 < el && el < shell2)
+			{
+				speedbin.push_back(el);
+				count++;
+			}
+		}
+
+		vector <double> stats = calcerror(&speedbin);
+
+		speeddist[k] = count;
+		speederror[k] = stats.back()*binsize;
+		if (count == 0 || count == 1)
+			speederror[k] = 0;
+		
+		if (count != 0)
+			binerror[k] = sqrt(count)/count;
+
+		binsizes[k] = k*binsize;
+
+		shell1 = shell2;
+	}
+	
+	speeds->writedata(&speeddist,"speeddist.txt");
+	speeds->writedata(&speederror,"speederror.txt");
+	speeds->writedata(&binerror,"spdbinerror.txt");
+	speeds->writedata(&binsizes,"spdbinsize.txt");
+}
+
+void radialdistfunc(double boxlength, int natoms, int bins, dataclass* distances)       // calculates the radial distribution
 {
 	vector <double> rdf (bins);
-	double resbins = 1/(static_cast<double> (bins));			// reciprocal densbins
+	vector <double> rdferror(bins);
+	vector <double> binerror(bins);
+	vector <double> binsizes(bins);	
+
 	double halfbox = 0.5*boxlength;								// half box lengt
+	double binsize = halfbox/static_cast<double> (bins);
+	double resbins = 1/(static_cast<double> (bins));			// reciprocal densbins
 	
-	vector<int>hist(bins);
 	double shell1 = 0, shell2 = 0;
 
 	for(double k = 0; k < bins; k++)							// bin distances up to half box length
 	{ 
 		shell2 = (k + 1)*resbins*halfbox;
-		hist[k] = count_if(datac->data.begin(), datac->data.end(), [&shell1, &shell2](double i){return shell1 < i && i < shell2;}); 
+		
+		int count = 0;
+		vector <double> rdfbin = {};
+
+		for (auto& el : distances->data)
+		{
+			if (shell1 < el && el < shell2)
+			{
+				rdfbin.push_back(el);
+				count++;
+			}
+		}
+
+		vector <double> stats = calcerror(&rdfbin);
+
+		rdf[k] = count;
+		rdferror[k] = stats.back(); //*binsize;
+		if (count == 0 || count == 1)
+			rdferror[k] = 0;
+		if (count != 0)
+			binerror[k] = sqrt(count)/count;
+
+		binsizes[k] = k*binsize;
+		
+		
 		shell1 = shell2;
 	}
 
@@ -229,10 +286,40 @@ void radialdistfunc(double boxlength, int natoms, int bins, dataclass* datac)   
 	{
 		dens = natomssq*resvol;
 		norm = 4*pi*pow((k+1)*resbins*halfbox,2)*dens*(halfbox*resbins);
-		rdf[k] = hist[k]/norm;
+		rdf[k] /= norm;
+		binerror[k] /= norm;
 	}	
 
-	datac->writedata(&rdf,"radialdistfunc.txt");
+	distances->writedata(&rdf,"radialdistfunc.txt");
+	distances->writedata(&rdferror,"rdferror.txt");
+	distances->writedata(&binerror,"rdfbinerror.txt");
+	distances->writedata(&binsizes,"rdfbinsize.txt");
+}
+
+void blockaverage(double blocks, dataclass* datac)
+{
+	double average = accumulate(datac->data.begin(),datac->data.end(),0.0)/datac->data.size();
+
+	double blocksize = datac->data.size()/blocks;
+	double blockavg = 0;
+	double accavg = 0;
+	int pivot = 0;
+
+	for (unsigned int k = 0; k < blocks; k ++)
+	{
+		for (int l = pivot; l < pivot + blocksize; l++)
+		{
+			accavg += pow(datac->data[l],2);
+		}
+		blockavg += accavg/blocksize-pow(average,2);
+		cout << accavg/blocksize << " " << blockavg << endl;
+		accavg = 0;
+		pivot += blocksize;
+	}
+
+	double blockerror = sqrt(blockavg/(blocks-1.0));
+
+	cout << "blockerror: " << blockerror << endl;
 }
 
 // main
@@ -243,14 +330,25 @@ int main()
 	dataclass particle("particle.txt");
 	particle.acorrelation();
 
+	//kinetic energy
 	dataclass kinetic("kinetic.txt");
+
+	//vector <double> tmp = {1000,500,250,100,50,10,5,2};
+
+	//for (unsigned int k = 0; k < tmp.size(); k++)
+	//	blockaverage(tmp[k], &kinetic);
+	blockaverage(10, &kinetic);
+
+	vector <double> kindata = kinetic.getdata();
+	vector <double> kinerror = calcerror(&kindata);
+	cout << kinerror[2] << endl;
 
 	// speed distribution
 	dataclass speeds("speeds.txt");
 	
 	int bins = 100;
 	double maxspeed = 500;
-	speeds.speeddist(maxspeed, bins);
+	speeddist(maxspeed, bins, &speeds);
 
 	// radial distribution function
 	dataclass rdf("distances.txt");
